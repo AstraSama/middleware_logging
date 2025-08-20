@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "email": "felipe@example.com",
+    "name": "Felipe",
+    "cpf": "52414088192",
+    "rg": "111111111",
+    "cep": "11111111",
+    "street": "Rua um",
+    "neighborhood": "Bairro um",
+    "city": "Cidade um",
+    "state": "Estado um"
+  },
+  {
+    "id": 3,
+    "email": "andre@example.com",
+    "name": "André",
+    "cpf": "44466072353",
+    "rg": "333333333",
+    "cep": "33333333",
+    "street": "Rua três",
+    "neighborhood": "Bairro três",
+    "city": "Cidade três",
+    "state": "Estado três"
+  }
+]

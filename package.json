@@ -29,7 +29,9 @@
   "dependencies": {
     "cep-promise": "^4.4.1",
     "express": "^5.1.0",
+    "fs": "^0.0.1-security",
     "mongoose": "^8.17.1",
+    "path": "^0.12.7",
     "validation-br": "^1.5.2",
     "zod": "^4.0.17"
   }
