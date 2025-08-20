@@ -1,4 +1,4 @@
-import express, { Request, Response, NextFunction } from "express";
+import express, { Request, Response, NextFunction, ErrorRequestHandler } from "express";
 import { isCNPJ, isCPF, isCNH } from "validation-br";
 import { dv, fake, mask, validate } from "validation-br/dist/cpf";
 import cep from "cep-promise";
@@ -42,6 +42,19 @@ export interface IClient extends IPerson, IAddress {
 }
 
 /**
+ * Classe de erro customizado
+ */
+export class AppError extends Error {
+  public readonly statusCode: number;
+
+  constructor(message: string, statusCode: number = 400) {
+    super(message);
+    this.statusCode = statusCode;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+/**
  * UserRepository
  */
 class UserRepository {
@@ -81,7 +94,7 @@ class UserRepository {
   public async create(user: Omit<IClient, "id">): Promise<IClient> {
     const newUser: IClient = {
       ...user,
-      id: (this.users.at(-1)?.id ?? 0) + 1
+      id: ((this.users.slice(-1)[0]?.id) ?? 0) + 1
     };
     this.users.push(newUser);
     await this.saveToFile();
@@ -106,7 +119,6 @@ class UserRepository {
     return deletedUser ?? null;
   }
 }
-
 
 // Instancia o repositório
 const userRepo = new UserRepository();
@@ -135,9 +147,9 @@ const validateBody = (schema: ZodObject<any>) => (req: Request, res: Response, n
     next();
   } catch (error) {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ message: "Invalid request data", errors: error.flatten().fieldErrors });
+      next(new AppError("Invalid request data", 400));
     } else {
-      res.status(500).json({ message: "Internal Server Error" });
+      next(error);
     }
   }
 };
@@ -145,61 +157,103 @@ const validateBody = (schema: ZodObject<any>) => (req: Request, res: Response, n
 // ====================== Rotas ======================
 
 // GET /users/isCPF/:id
-app.get("/users/isCPF/:id", async (req: Request<{ id: string }>, res: Response) => {
-  const id = parseInt(req.params.id, 10);
-  const user = await userRepo.getById(id);
+app.get("/users/isCPF/:id", async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const user = await userRepo.getById(id);
+    if (!user) throw new AppError("Usuário não encontrado", 404);
 
-  if (!user) return res.status(404).send({ message: "Usuário não encontrado" });
-  return res.send({ message: isCPF(user.cpf) ? "cpf válido" : "cpf inválido" });
+    res.send({ message: isCPF(user.cpf) ? "cpf válido" : "cpf inválido" });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // GET /users/isCEP/:id
-app.get("/users/isCEP/:id", async (req: Request<{ id: string }>, res: Response) => {
-  const id = parseInt(req.params.id, 10);
-  const user = await userRepo.getById(id);
-
-  if (!user) return res.status(404).json({ message: "Usuário não encontrado" });
-
+app.get("/users/isCEP/:id", async (req, res, next) => {
   try {
+    const id = parseInt(req.params.id, 10);
+    const user = await userRepo.getById(id);
+    if (!user) throw new AppError("Usuário não encontrado", 404);
+
     const addressData = await cep(user.cep);
     res.status(200).json({ message: "User's CEP is valid.", cep: user.cep, address: addressData });
   } catch (error) {
-    res.status(400).json({ message: "CEP não encontrado", cep: user.cep, error: (error as Error).message });
+    next(error);
   }
 });
 
 // GET /users
-app.get("/users", async (req: Request, res: Response) => {
-  const users = await userRepo.getAll();
-  res.json(users);
+app.get("/users", async (req, res, next) => {
+  try {
+    const users = await userRepo.getAll();
+    res.json(users);
+  } catch (error) {
+    next(error);
+  }
 });
 
 // GET /users/:id
-app.get("/users/:id", async (req: Request<{ id: string }>, res: Response) => {
-  const user = await userRepo.getById(Number(req.params.id));
-  if (!user) return res.status(404).json({ message: "Usuário não encontrado" });
-  res.json(user);
+app.get("/users/:id", async (req, res, next) => {
+  try {
+    const user = await userRepo.getById(Number(req.params.id));
+    if (!user) throw new AppError("Usuário não encontrado", 404);
+    res.json(user);
+  } catch (error) {
+    next(error);
+  }
 });
 
 // POST /users
-app.post("/users", validateBody(createUserSchema), async (req: Request<{}, {}, Omit<IClient, "id">>, res: Response) => {
-  const newUser = await userRepo.create(req.body);
-  res.status(201).json(newUser);
+app.post("/users", validateBody(createUserSchema), async (req: Request<{}, {}, Omit<IClient, "id">>, res: Response, next) => {
+  try {
+    const newUser = await userRepo.create(req.body);
+    res.status(201).json(newUser);
+  } catch (error) {
+    next(error);
+  }
 });
 
 // PUT /users/:id
-app.put("/users/:id", validateBody(updateUserSchema), async (req: Request<{ id: string }, {}, Partial<IClient>>, res: Response) => {
-  const updated = await userRepo.update(Number(req.params.id), req.body);
-  if (!updated) return res.status(404).json({ message: "Usuário não encontrado" });
-  res.json(updated);
+app.put("/users/:id", validateBody(updateUserSchema), async (req: Request<{ id: string }, {}, Partial<IClient>>, res: Response, next) => {
+  try {
+    const updated = await userRepo.update(Number(req.params.id), req.body);
+    if (!updated) throw new AppError("Usuário não encontrado", 404);
+    res.json(updated);
+  } catch (error) {
+    next(error);
+  }
 });
 
 // DELETE /users/:id
-app.delete("/users/:id", async (req: Request<{ id: string }>, res: Response) => {
-  const deleted = await userRepo.delete(Number(req.params.id));
-  if (!deleted) return res.status(404).json({ message: "Usuário não encontrado" });
-  res.json(deleted);
+app.delete("/users/:id", async (req: Request<{ id: string }>, res: Response, next) => {
+  try {
+    const deleted = await userRepo.delete(Number(req.params.id));
+    if (!deleted) throw new AppError("Usuário não encontrado", 404);
+    res.json(deleted);
+  } catch (error) {
+    next(error);
+  }
 });
+
+// ====================== Middleware Global de Erros ======================
+const errorMiddleware: ErrorRequestHandler = (err, req, res, _next) => {
+  if (err instanceof AppError) {
+    return res.status(err.statusCode).json({
+      status: "error",
+      message: err.message,
+    });
+  }
+
+  console.error("Erro inesperado:", err);
+
+  return res.status(500).json({
+    status: "error",
+    message: "Internal Server Error",
+  });
+};
+
+app.use(errorMiddleware);
 
 // Inicia o servidor
 app.listen(3000, () => {
